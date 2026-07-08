@@ -1,0 +1,44 @@
+# DE Global Partners — project configuration (single source of naming truth)
+# Values follow the approved SDD v1.2 conventions: global-partners-{env}-{zone}
+project: global-partners
+env: dev
+region: us-east-1
+
+buckets:
+  bronze: global-partners-dev-bronze
+  silver: global-partners-dev-silver
+  gold: global-partners-dev-gold
+  athena_results: global-partners-dev-athena-results
+  scripts: global-partners-dev-scripts        # Glue job scripts + wheels
+  logs: global-partners-dev-logs
+
+kms:
+  alias: alias/global-partners-dev            # customer-managed CMK
+
+glue:
+  job_prefix: global-partners-dev             # -> global-partners-dev-{job-name}
+  security_config: global-partners-dev-seccfg
+  workflow: global-partners-dev-daily
+  schedule_cron: "cron(0 6 * * ? *)"          # 06:00 UTC daily (SDD §9.2)
+  glue_version: "4.0"
+  worker_type: G.1X
+  num_workers: 2
+
+athena:
+  workgroup: global-partners-dev-wg
+  engine_version: "Athena engine version 3"   # v3 REQUIRED for Delta (SDD §6.1)
+
+secrets:
+  # Container name only. Gerardo creates & populates this himself (credential boundary).
+  sqlserver: global-partners-dev/sqlserver
+
+lifecycle:
+  bronze_ia_days: 30                           # Bronze -> Infrequent Access (SDD §10)
+
+# --- Data contract constants (validated against source, SDD §4 / §1 QA) ---
+data:
+  source_record_count: 203519                  # order_items ground truth
+  dev_app_name: "Alltown Fresh - DEVELOPMENT"  # test rows excluded in Silver
+  # canonical post-cleaning Silver figures (pandas+PySpark validated):
+  silver_order_items_count: 202692             # 203519 - 1 malformed - 826 DEV
+  options_deduped_count: 190718                # 193017 - 2299 duplicates

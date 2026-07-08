@@ -1,0 +1,16 @@
+# Runtime / infra
+boto3>=1.34
+PyYAML>=6.0
+
+# Transform + local dev/test (AWS Glue 4.0 provides Spark/Delta on-cluster)
+pyspark==3.5.3
+delta-spark==3.2.1
+holidays>=0.45          # US federal holidays for the generated calendar (D1)
+
+# Query + serving
+pyathena>=3.8
+streamlit>=1.36
+pandas>=2.0
+
+# Test/CI
+pytest>=8.0

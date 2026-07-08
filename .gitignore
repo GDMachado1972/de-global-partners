@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Spark / Delta local
+spark-warehouse/
+metastore_db/
+derby.log
+*.crc
+_delta_log/
+
+# AWS / secrets — NEVER commit
+.env
+*.pem
+credentials
+aws_config
+infra/glue_job_policy.json   # generated; review then apply, do not commit secrets
+
+# Data — do not commit source CSVs (large; provided separately)
+*.csv
+!tests/data/*.csv            # tiny fixtures only
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

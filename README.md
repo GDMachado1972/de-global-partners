@@ -1,0 +1,77 @@
+# DE Global Partners — Daily CLV & Behavioral Analytics Pipeline
+
+Production-grade, AWS-native pipeline that computes **daily Customer Lifetime Value** and
+behavioral analytics for Alltown Fresh (Global Partners LP) ordering data, served through a
+Streamlit dashboard. See `docs/DE_Global_Partners_SDD_v1_2.docx` for the approved design.
+
+**Status:** SDD v1.2 approved by SME (Bansari Modi); build in progress against the §13 critical path.
+
+## Architecture (SDD §6)
+```
+SQL Server (Windows) → Glue JDBC → S3 Bronze (Delta) → Glue ETL (PySpark) → S3 Silver
+→ Glue ETL → S3 Gold (Delta) → Athena v3 + pyathena → Streamlit on App Runner
+```
+Cross-cutting: Glue Workflows (daily cron ~06:00 UTC) · Job Bookmarks · CloudWatch + SNS ·
+Secrets Manager + KMS · IAM least-privilege. Diagram: `docs/DE_Global_Partners_Architecture.drawio`.
+
+## Repository layout
+```
+config/    project_config.yaml     # single source of naming truth
+infra/     bootstrap_infra.py      # boto3: S3/KMS/Glue-seccfg/Athena v3 (+emits IAM/Secrets)
+glue/lib/  spark_session, schema, cleaning, calendar_gen   # unit-tested transform logic
+glue/jobs/ job1_ingest_sqlserver_to_bronze, job2_bronze_to_silver, ...
+glue/workflow/  create_workflow.py # (next) Glue Workflow + triggers wiring
+streamlit/ app.py                  # (next) 6-view dashboard
+tests/     pytest — synthetic unit + real-data integration
+docs/      SDD, QA report, architecture diagram
+```
+
+## Two SME decisions baked in
+- **D1 (approved):** the shipped `date_dim` covers only 2023 but orders span **2020-04-21 →
+  2024-02-21**, so the calendar is **generated in Silver** from the true min/max order date
+  (100% join coverage). See `glue/lib/calendar_gen.py`.
+- **D2 (descope & document):** the dataset contains **no discount signal** (0 negative prices
+  in either file), so the specified "Pricing & Discount Effectiveness" analysis **cannot be
+  performed** and is documented as a data limitation. An add-on/modifier revenue view is
+  retained only as an optional supplement (sixth dashboard slot).
+
+## Credential boundary (hard rule)
+Gerardo owns all AWS credentials, IAM, KMS approvals, and Secrets Manager values. The infra
+script **provisions non-credential resources** and **emits** the IAM policy JSON and the
+`aws secretsmanager` command for him to apply — it never creates IAM or handles secret values.
+
+## Quickstart (local dev / test)
+```bash
+pip install -r requirements.txt
+
+# run unit tests (no data needed)
+pytest -m "not integration"
+
+# run everything incl. real-data checks (asserts 202,692 Silver rows, 100% calendar coverage)
+DATA_DIR=/path/to/the/three/csvs pytest
+```
+
+## Provision infrastructure (Gerardo, with his AWS creds)
+```bash
+python infra/bootstrap_infra.py --config config/project_config.yaml --dry-run   # preview
+python infra/bootstrap_infra.py --config config/project_config.yaml             # apply
+# then: create the SQL Server secret (printed command) + Glue connection, attach the emitted IAM policy
+```
+
+## Run Silver locally (CSV fallback, SDD risk R5)
+```bash
+spark-submit glue/jobs/job2_bronze_to_silver.py --source_mode csv \
+  --landing_path /path/to/csvs --silver_path /tmp/silver
+```
+
+## Canonical validated figures (source of truth for QA gates)
+| Metric | Value |
+|---|---|
+| Raw order_items records | 203,519 |
+| Silver order_items (post-clean) | **202,692** (−1 malformed, −826 DEVELOPMENT) |
+| Options deduped | 190,718 (−2,299) |
+| Order span | 2020-04-21 → 2024-02-21 (1,402 calendar days) |
+| Identified customers / guest line-items | 20,059 / 17,502 (post-clean) |
+| Locations (post-clean) | 27 (a test-only RESTAURANT_ID dropped with DEVELOPMENT rows) |
+| Gross item revenue (post-clean) | $9,920,993.35 |
+| Discount signal | none (D2) |
