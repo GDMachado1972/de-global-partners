@@ -20,7 +20,7 @@ config/    project_config.yaml     # single source of naming truth
 infra/     bootstrap_infra.py      # boto3: S3/KMS/Glue-seccfg/Athena v3 (+emits IAM/Secrets)
 glue/lib/  spark_session, schema, cleaning, calendar_gen   # unit-tested transform logic
 glue/jobs/ job1_ingest_sqlserver_to_bronze, job2_bronze_to_silver, ...
-glue/workflow/  create_workflow.py # (next) Glue Workflow + triggers wiring
+glue/workflow/  create_workflow.py # Glue Workflow + triggers + failure->SNS + reload
 streamlit/ app.py                  # (next) 6-view dashboard
 tests/     pytest — synthetic unit + real-data integration
 docs/      SDD, QA report, architecture diagram
@@ -63,6 +63,18 @@ python infra/bootstrap_infra.py --config config/project_config.yaml             
 spark-submit glue/jobs/job2_bronze_to_silver.py --source_mode csv \
   --landing_path /path/to/csvs --silver_path /tmp/silver
 ```
+
+## Deploy + wire the Glue Workflow (Gerardo, with AWS creds)
+```bash
+make deploy                                   # upload job scripts + glue_lib.zip + config
+make workflow-dryrun                          # preview the DAG (zero AWS calls)
+make workflow-apply ROLE_ARN=arn:aws:iam::<acct>:role/global-partners-dev-glue \
+     ALERT_EMAIL=you@example.com              # create workflow, triggers, failure->SNS
+make reload DATE=2024-01-15 ROLE_ARN=...      # reprocess one batch_date (idempotent)
+```
+**DAG:** `schedule(06:00 UTC) → J1 → J2 → {J3 ∥ J4} → J5`; any job `FAILED/TIMEOUT/STOPPED`
+→ EventBridge → SNS alert. Reload re-runs the workflow with `batch_date`, overwriting only
+that partition (Delta, SDD §9.4). Jobs 3–5 are placeholders until the Gold increment.
 
 ## Canonical validated figures (source of truth for QA gates)
 | Metric | Value |

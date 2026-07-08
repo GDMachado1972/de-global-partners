@@ -10,7 +10,8 @@ export SPARK_LOCAL_IP := 127.0.0.1
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint test test-all infra-dryrun infra-apply silver-local clean
+.PHONY: help install lint test test-all infra-dryrun infra-apply silver-local \
+        workflow-dryrun workflow-apply deploy reload clean
 
 help:            ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -39,6 +40,28 @@ silver-local:    ## Build Silver from CSVs locally — requires LANDING=/path/to
 	@test -n "$(LANDING)" || (echo "Set LANDING=/path/to/the/three/csvs"; exit 1)
 	$(PYTHON) glue/jobs/job2_bronze_to_silver.py --source_mode csv \
 	  --landing_path $(LANDING) --silver_path $(SILVER_OUT)
+
+workflow-dryrun: ## Preview Glue Workflow wiring (zero AWS calls)
+	$(PYTHON) glue/workflow/create_workflow.py --config $(CONFIG) --dry-run
+
+workflow-apply:  ## Create/update the Glue Workflow — needs ROLE_ARN=arn:aws:iam::...:role/...
+	@test -n "$(ROLE_ARN)" || (echo "Set ROLE_ARN=<your glue role arn>"; exit 1)
+	$(PYTHON) glue/workflow/create_workflow.py --config $(CONFIG) --role-arn $(ROLE_ARN) \
+	  $(if $(ALERT_EMAIL),--alert-email $(ALERT_EMAIL),)
+
+reload:          ## Reprocess one batch_date — make reload DATE=YYYY-MM-DD ROLE_ARN=...
+	@test -n "$(DATE)" -a -n "$(ROLE_ARN)" || (echo "Set DATE=YYYY-MM-DD ROLE_ARN=..."; exit 1)
+	$(PYTHON) glue/workflow/create_workflow.py --config $(CONFIG) --role-arn $(ROLE_ARN) --reload $(DATE)
+
+deploy:          ## Package glue/lib + upload job scripts & config to the scripts bucket (needs AWS creds)
+	@BUCKET=$$(grep -A6 '^buckets:' $(CONFIG) | grep 'scripts:' | awk '{print $$2}'); \
+	  echo "packaging glue/lib -> glue_lib.zip"; \
+	  (cd glue && zip -qr /tmp/glue_lib.zip lib -x '*__pycache__*'); \
+	  echo "uploading to s3://$$BUCKET/ ..."; \
+	  aws s3 cp /tmp/glue_lib.zip s3://$$BUCKET/lib/glue_lib.zip; \
+	  aws s3 sync glue/jobs s3://$$BUCKET/jobs --exclude '*__pycache__*'; \
+	  aws s3 cp $(CONFIG) s3://$$BUCKET/config/project_config.yaml; \
+	  echo "deploy complete"
 
 clean:           ## Remove local build/test artifacts
 	rm -rf **/__pycache__ .pytest_cache spark-warehouse metastore_db derby.log \

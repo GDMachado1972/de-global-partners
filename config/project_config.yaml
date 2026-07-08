@@ -42,3 +42,18 @@ data:
   # canonical post-cleaning Silver figures (pandas+PySpark validated):
   silver_order_items_count: 202692             # 203519 - 1 malformed - 826 DEV
   options_deduped_count: 190718                # 193017 - 2299 duplicates
+
+# --- Orchestration (Glue Workflow) ---
+sns:
+  topic: global-partners-dev-alerts            # failure alerts (EventBridge -> SNS)
+workflow_scripts_prefix: jobs                  # s3://{scripts bucket}/jobs/*.py
+workflow_lib_zip: lib/glue_lib.zip             # s3://{scripts bucket}/lib/glue_lib.zip
+workflow_run_properties:
+  batch_date: ""                               # empty = jobs use current_date; set for reload
+# glue.role_arn is NOT stored here — Gerardo passes --role-arn at apply (his IAM).
+jobs:
+  ingest_bronze:   { name: global-partners-dev-ingest-bronze,   script: job1_ingest_sqlserver_to_bronze.py }
+  bronze_silver:   { name: global-partners-dev-bronze-silver,   script: job2_bronze_to_silver.py }
+  gold_clv_daily:  { name: global-partners-dev-gold-clv-daily,  script: job3_silver_to_gold_clv_daily.py }
+  gold_marts:      { name: global-partners-dev-gold-marts,      script: job4_silver_to_gold_marts.py }
+  publish_qc:      { name: global-partners-dev-publish-qc,      script: job5_publish_and_qc.py }
