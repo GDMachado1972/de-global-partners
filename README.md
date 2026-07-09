@@ -22,7 +22,7 @@ glue/lib/  spark_session, schema, cleaning, calendar_gen   # unit-tested transfo
 glue/jobs/ job1_ingest_sqlserver_to_bronze, job2_bronze_to_silver, ...
 glue/workflow/  create_workflow.py # Glue Workflow + triggers + failure->SNS + reload
 glue/lib/  gold.py                 # CLV snapshot + 6 marts (implemented)
-streamlit/ app.py                  # (next) 6-view dashboard
+dashboard/ app.py + data_access.py # Streamlit 6-view dashboard (Athena / local)
 tests/     pytest — synthetic unit + real-data integration
 docs/      SDD, QA report, architecture diagram
 ```
@@ -107,3 +107,29 @@ supplement (D2). `job5` runs the QC gates and (in AWS) registers the Athena v3 t
 ```bash
 make gold-local LANDING=/path/to/csvs      # build CLV + marts locally
 ```
+
+## Dashboard (Streamlit — 6 views + CLV overview)
+`dashboard/app.py` serves CLV Overview, Customer Segmentation (RFM), Churn Risk, Sales
+Trends, Loyalty Impact, Location Performance, and Pricing & Add-on. The sixth view shows
+the **D2 data-limitation note** (no discount signal) plus the optional add-on supplement.
+
+Two backends via `DATA_BACKEND`:
+- `athena` — queries the Gold tables through pyathena (engine-v3 workgroup).
+- `local` — rebuilds the marts from CSVs with the same tested PySpark transforms (no Delta/
+  network); used for local dev and the recorded-video descope.
+
+```bash
+make dashboard LANDING=/path/to/csvs                 # local backend
+DATA_BACKEND=athena ATHENA_S3_STAGING=s3://global-partners-dev-athena-results/athena/ \
+  streamlit run dashboard/app.py                     # Athena backend (needs AWS creds)
+```
+
+## CI/CD
+- **CI** (`.github/workflows/ci.yml`): a secrets/data guard (fails if `.env`, `*.pem`,
+  `credentials`, `glue_job_policy.json`, or `*.csv` are committed), then lint, infra +
+  workflow **dry-run validation**, and unit tests. Concurrency cancels superseded runs.
+  Integration tests are guarded (`if: false`) since the CSVs aren't in the repo.
+- **CD** (`.github/workflows/deploy.yml`): on push to `main`, assumes an AWS role via
+  **GitHub OIDC** (no long-lived keys), runs `make deploy` (uploads job scripts + `glue_lib.zip`
+  + config), and creates/updates the Glue Workflow. Auto-skips until `AWS_DEPLOY_ROLE_ARN`
+  is set. Configure repo variables `AWS_DEPLOY_ROLE_ARN`, `GLUE_ROLE_ARN`, `AWS_REGION`.

@@ -11,6 +11,7 @@ holidays>=0.45          # US federal holidays for the generated calendar (D1)
 pyathena>=3.8
 streamlit>=1.36
 pandas>=2.0
+pyarrow>=14.0
 
 # Test/CI
 pytest>=8.0

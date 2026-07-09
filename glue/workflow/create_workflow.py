@@ -75,7 +75,7 @@ def build_workflow_spec(cfg, role_arn="<ROLE_ARN>"):
 
     def job(key):
         m = j[key]
-        return {
+        spec = {
             "Name": m["name"],
             "Role": role_arn,
             "GlueVersion": g["glue_version"],
@@ -85,8 +85,17 @@ def build_workflow_spec(cfg, role_arn="<ROLE_ARN>"):
             "ExecutionProperty": {"MaxConcurrentRuns": 3},   # allow reloads alongside daily
             "Command": {"Name": "glueetl", "PythonVersion": "3",
                         "ScriptLocation": script_uri(m["script"])},
-            "DefaultArguments": common_args,
+            "DefaultArguments": dict(common_args),
         }
+        # ingest_bronze needs VPC connectivity (Connections) + the JDBC url (secret_arn is
+        # injected separately in apply_spec, since resolving it requires an AWS call).
+        if key == "ingest_bronze" and "sqlserver" in cfg and "network" in cfg:
+            s = cfg["sqlserver"]
+            spec["DefaultArguments"]["--jdbc_url"] = (
+                f"jdbc:sqlserver://{s['host']}:{s['port']};databaseName={s['database']};"
+                "encrypt=true;trustServerCertificate=true")
+            spec["Connections"] = {"Connections": [cfg["network"]["connection_name"]]}
+        return spec
 
     jobs = {k: job(k) for k in
             ["ingest_bronze", "bronze_silver", "gold_clv_daily", "gold_marts", "publish_qc"]}
@@ -166,10 +175,39 @@ def apply_spec(spec, cfg, role_arn, alert_email, dry):
         else:
             glue.create_workflow(**wf)
 
+    # 2b) Network connection (VPC/subnet/SG so the ingest job's ENI can reach the DB)
+    if "network" in cfg:
+        n = cfg["network"]
+        print(f"{tag}ensure Glue connection {n['connection_name']}")
+        if not dry:
+            conn_input = {
+                "Name": n["connection_name"],
+                "ConnectionType": "NETWORK",
+                "ConnectionProperties": {},
+                "PhysicalConnectionRequirements": {
+                    "SubnetId": n["subnet_id"],
+                    "SecurityGroupIdList": [n["security_group_id"]],
+                    "AvailabilityZone": n["availability_zone"],
+                },
+            }
+            if _exists(glue.get_connection, Name=n["connection_name"]):
+                glue.update_connection(Name=n["connection_name"], ConnectionInput=conn_input)
+            else:
+                glue.create_connection(ConnectionInput=conn_input)
+
     # 3) Jobs
+    secrets_client = None
     for key, jd in spec["jobs"].items():
         print(f"{tag}ensure Glue job {jd['Name']}")
         if not dry:
+            # ingest_bronze reads its DB secret ARN at run time; resolve it here (never
+            # the secret value itself) since build_workflow_spec makes no AWS calls.
+            if key == "ingest_bronze" and "secrets" in cfg and "sqlserver" in cfg["secrets"]:
+                if secrets_client is None:
+                    secrets_client = boto3.client("secretsmanager", region_name=region)
+                secret_arn = secrets_client.describe_secret(
+                    SecretId=cfg["secrets"]["sqlserver"])["ARN"]
+                jd["DefaultArguments"]["--secret_arn"] = secret_arn
             if _exists(glue.get_job, JobName=jd["Name"]):
                 params = {k: v for k, v in jd.items() if k != "Name"}
                 glue.update_job(JobName=jd["Name"], JobUpdate=params)

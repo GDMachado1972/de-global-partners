@@ -32,6 +32,19 @@ secrets:
   # Container name only. Gerardo creates & populates this himself (credential boundary).
   sqlserver: global-partners-dev/sqlserver
 
+# Non-secret JDBC connectivity (host/port/db only — credentials live in Secrets Manager above)
+sqlserver:
+  host: global-partners-dev-sqlserver.cu7wcqg0mq9g.us-east-1.rds.amazonaws.com
+  port: 1433
+  database: alltownfresh
+
+# VPC wiring so the ingest job's Glue Connection can reach the RDS instance
+network:
+  connection_name: global-partners-dev-sqlserver-conn
+  subnet_id: subnet-0ef57f33d6dd5ee99          # us-east-1a, same AZ as the RDS instance
+  security_group_id: sg-0dc80a6c559bad8b9      # self-referencing rule allows Glue ENI <-> RDS
+  availability_zone: us-east-1a
+
 lifecycle:
   bronze_ia_days: 30                           # Bronze -> Infrequent Access (SDD §10)
 

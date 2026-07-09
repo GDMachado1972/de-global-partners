@@ -1,0 +1,55 @@
+name: Deploy
+
+# CD: on push to main (after CI) or manual dispatch, package glue/lib + upload job
+# scripts and config to the scripts bucket, then create/update the Glue Workflow.
+#
+# Credential boundary: NO long-lived keys. Uses GitHub OIDC to assume an AWS role that
+# Gerardo creates (trust policy for this repo). Set repository variables:
+#   AWS_DEPLOY_ROLE_ARN  (the role to assume)   AWS_REGION (default us-east-1)
+#   GLUE_ROLE_ARN        (the Glue job execution role)
+# The deploy job is skipped automatically until AWS_DEPLOY_ROLE_ARN is set.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write        # required for OIDC
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check deploy is configured
+        id: cfg
+        run: |
+          if [ -z "${{ vars.AWS_DEPLOY_ROLE_ARN }}" ]; then
+            echo "AWS_DEPLOY_ROLE_ARN not set — skipping deploy (configure OIDC to enable)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.cfg.outputs.enabled == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Package + upload scripts and config
+        if: steps.cfg.outputs.enabled == 'true'
+        run: make deploy
+
+      - name: Create/update Glue Workflow
+        if: steps.cfg.outputs.enabled == 'true'
+        run: |
+          python -m pip install --upgrade pip && pip install boto3 pyyaml
+          python glue/workflow/create_workflow.py \
+            --config config/project_config.yaml \
+            --role-arn "${{ vars.GLUE_ROLE_ARN }}"
