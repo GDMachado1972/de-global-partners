@@ -21,6 +21,7 @@ infra/     bootstrap_infra.py      # boto3: S3/KMS/Glue-seccfg/Athena v3 (+emits
 glue/lib/  spark_session, schema, cleaning, calendar_gen   # unit-tested transform logic
 glue/jobs/ job1_ingest_sqlserver_to_bronze, job2_bronze_to_silver, ...
 glue/workflow/  create_workflow.py # Glue Workflow + triggers + failure->SNS + reload
+glue/lib/  gold.py                 # CLV snapshot + 6 marts (implemented)
 streamlit/ app.py                  # (next) 6-view dashboard
 tests/     pytest — synthetic unit + real-data integration
 docs/      SDD, QA report, architecture diagram
@@ -87,3 +88,22 @@ that partition (Delta, SDD §9.4). Jobs 3–5 are placeholders until the Gold in
 | Locations (post-clean) | 27 (a test-only RESTAURANT_ID dropped with DEVELOPMENT rows) |
 | Gross item revenue (post-clean) | $9,920,993.35 |
 | Discount signal | none (D2) |
+
+## Gold layer (implemented — validated on real data)
+`job3` builds `g_fact_customer_clv_daily` (grain user_id × snapshot_date; cumulative net
+revenue, orders, recency, as-of-date High/Medium/Low tiers). `job4` builds six marts:
+RFM, churn, sales-trends, loyalty-impact, location-performance, and the optional add-on
+supplement (D2). `job5` runs the QC gates and (in AWS) registers the Athena v3 tables.
+
+| Gold check | Value |
+|---|---|
+| Identified customers (CLV/RFM/churn) | 20,059 |
+| CLV tier split (latest snapshot) | ~20 / 60 / 20 (High/Medium/Low) |
+| Identified-customer cumulative net revenue | $7,769,264.83 |
+| Total net revenue (sales-trends, incl. guests) | $10,005,987.89 |
+| Total gross revenue | $9,920,993.35 |
+| Locations ranked | 27 |
+
+```bash
+make gold-local LANDING=/path/to/csvs      # build CLV + marts locally
+```

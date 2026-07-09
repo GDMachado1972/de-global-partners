@@ -11,7 +11,7 @@ export SPARK_LOCAL_IP := 127.0.0.1
 .DEFAULT_GOAL := help
 
 .PHONY: help install lint test test-all infra-dryrun infra-apply silver-local \
-        workflow-dryrun workflow-apply deploy reload clean
+        gold-local workflow-dryrun workflow-apply deploy reload clean
 
 help:            ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -40,6 +40,13 @@ silver-local:    ## Build Silver from CSVs locally — requires LANDING=/path/to
 	@test -n "$(LANDING)" || (echo "Set LANDING=/path/to/the/three/csvs"; exit 1)
 	$(PYTHON) glue/jobs/job2_bronze_to_silver.py --source_mode csv \
 	  --landing_path $(LANDING) --silver_path $(SILVER_OUT)
+
+gold-local:      ## Build Gold (CLV + marts) from CSVs locally — requires LANDING=/path/to/csvs
+	@test -n "$(LANDING)" || (echo "Set LANDING=/path/to/the/three/csvs"; exit 1)
+	$(PYTHON) glue/jobs/job3_silver_to_gold_clv_daily.py --source_mode csv \
+	  --landing_path $(LANDING) --gold_path /tmp/gold
+	$(PYTHON) glue/jobs/job4_silver_to_gold_marts.py --source_mode csv \
+	  --landing_path $(LANDING) --gold_path /tmp/gold
 
 workflow-dryrun: ## Preview Glue Workflow wiring (zero AWS calls)
 	$(PYTHON) glue/workflow/create_workflow.py --config $(CONFIG) --dry-run

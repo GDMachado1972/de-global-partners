@@ -25,6 +25,7 @@ except Exception:                      # local / CI
 from glue.lib.cleaning import clean_order_items, clean_order_item_options
 from glue.lib.calendar_gen import generate_calendar
 from glue.lib.schema import standardize_casing
+from glue.lib.gold import build_order_lines, build_orders
 
 
 def _args(argv):
@@ -56,15 +57,9 @@ def build_silver(spark, a):
     s_date_dim = generate_calendar(spark, b["lo"].isoformat(), b["hi"].isoformat())
 
     # order-grain net revenue (net == gross here; options additive, no discounts — D2)
-    from pyspark.sql import functions as F
-    opt_by_line = (s_options.groupBy("order_id", "lineitem_id")
-                   .agg(F.sum("option_line").alias("opt_revenue")))
-    s_order_lines = (s_items.join(opt_by_line, ["order_id", "lineitem_id"], "left")
-                     .withColumn("opt_revenue", F.coalesce("opt_revenue", F.lit(0.0)))
-                     .withColumn("net_line", F.round(F.col("gross_line") + F.col("opt_revenue"), 2)))
-    s_orders = (s_order_lines.groupBy("order_id", "user_id", "restaurant_id",
-                                      "is_loyalty", "is_guest", "order_date")
-                .agg(F.round(F.sum("net_line"), 2).alias("order_net")))
+    from pyspark.sql import functions as F  # noqa: F401 (kept for parity)
+    s_order_lines = build_order_lines(s_items, s_options)
+    s_orders = build_orders(s_order_lines)
     return dict(s_order_items=s_items, s_order_item_options=s_options,
                 s_date_dim=s_date_dim, s_order_lines=s_order_lines, s_orders=s_orders)
 
