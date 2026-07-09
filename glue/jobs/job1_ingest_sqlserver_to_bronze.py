@@ -63,7 +63,6 @@ def _read_csv(spark, a, table):
 
 def main(argv):
     a = _args(argv)
-    batch = a.batch_date or F.current_date()
     if _GLUE:
         sc = SparkContext(); spark = GlueContext(sc).spark_session
     else:

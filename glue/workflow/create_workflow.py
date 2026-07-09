@@ -68,6 +68,12 @@ def build_workflow_spec(cfg, role_arn="<ROLE_ARN>"):
         "--enable-metrics": "true",
         "--enable-continuous-cloudwatch-log": "true",
         "--datalake-formats": "delta",                    # Delta on Glue 4.0
+        # explicit Delta SQL extension/catalog registration — without this, overwriting
+        # an *existing* Delta table throws "DeleteFromTable cannot be cast to
+        # DeleteCommand" (Delta's analyzer rules never get attached to the session).
+        "--conf": ("spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension "
+                   "--conf spark.sql.catalog.spark_catalog="
+                   "org.apache.spark.sql.delta.catalog.DeltaCatalog"),
         "--extra-py-files": lib_zip,                       # ship glue/lib
         "--TempDir": temp_dir,
         "--config": f"s3://{scripts_bucket}/config/project_config.yaml",

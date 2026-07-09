@@ -67,7 +67,8 @@ reload:          ## Reprocess one batch_date — make reload DATE=YYYY-MM-DD ROL
 deploy:          ## Package glue/lib + upload job scripts & config to the scripts bucket (needs AWS creds)
 	@BUCKET=$$(grep -A6 '^buckets:' $(CONFIG) | grep 'scripts:' | awk '{print $$2}'); \
 	  echo "packaging glue/lib -> glue_lib.zip"; \
-	  (cd glue && zip -qr /tmp/glue_lib.zip lib -x '*__pycache__*'); \
+	  rm -f /tmp/glue_lib.zip; \
+	  zip -qr /tmp/glue_lib.zip glue/__init__.py glue/lib -x '*__pycache__*'; \
 	  echo "uploading to s3://$$BUCKET/ ..."; \
 	  aws s3 cp /tmp/glue_lib.zip s3://$$BUCKET/lib/glue_lib.zip; \
 	  aws s3 sync glue/jobs s3://$$BUCKET/jobs --exclude '*__pycache__*'; \
