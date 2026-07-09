@@ -84,7 +84,7 @@ def ensure_bucket(s3, name, region, kms_alias, dry, bronze_ia_days=None):
 
 
 # ---------------------------------------------------------------- Glue security config
-def ensure_glue_seccfg(glue, name, kms_alias, dry):
+def ensure_glue_seccfg(glue, name, kms_key_arn, dry):
     if dry:
         log(dry, f"create Glue security configuration {name} (S3+CloudWatch+bookmarks SSE-KMS)")
         return
@@ -92,20 +92,20 @@ def ensure_glue_seccfg(glue, name, kms_alias, dry):
     if name in existing:
         print(f"[skip] Glue security config {name} exists"); return
     glue.create_security_configuration(Name=name, EncryptionConfiguration={
-        "S3Encryption": [{"S3EncryptionMode": "SSE-KMS", "KmsKeyArn": kms_alias}],
-        "CloudWatchEncryption": {"CloudWatchEncryptionMode": "SSE-KMS", "KmsKeyArn": kms_alias},
-        "JobBookmarksEncryption": {"JobBookmarksEncryptionMode": "CSE-KMS", "KmsKeyArn": kms_alias}})
+        "S3Encryption": [{"S3EncryptionMode": "SSE-KMS", "KmsKeyArn": kms_key_arn}],
+        "CloudWatchEncryption": {"CloudWatchEncryptionMode": "SSE-KMS", "KmsKeyArn": kms_key_arn},
+        "JobBookmarksEncryption": {"JobBookmarksEncryptionMode": "CSE-KMS", "KmsKeyArn": kms_key_arn}})
     print(f"[ok] Glue security config {name} created")
 
 
 # ---------------------------------------------------------------- Athena workgroup v3
-def ensure_athena_wg(athena, wg, results_bucket, kms_alias, engine, dry):
+def ensure_athena_wg(athena, wg, results_bucket, kms_key_arn, engine, dry):
     out = f"s3://{results_bucket}/athena/"
     if dry:
         log(dry, f"create Athena workgroup {wg} ({engine}, output {out}, SSE-KMS)"); return
     existing = [w["Name"] for w in athena.list_work_groups().get("WorkGroups", [])]
     conf = {"ResultConfiguration": {"OutputLocation": out,
-                "EncryptionConfiguration": {"EncryptionOption": "SSE_KMS", "KmsKey": kms_alias}},
+                "EncryptionConfiguration": {"EncryptionOption": "SSE_KMS", "KmsKey": kms_key_arn}},
             "EnforceWorkGroupConfiguration": True,
             "PublishCloudWatchMetricsEnabled": True,
             "EngineVersion": {"SelectedEngineVersion": engine}}
@@ -169,12 +169,15 @@ def main(argv):
           f"region={region} ===")
     if dry:
         s3 = kms = glue = athena = None
+        kms_key_arn = f"arn:aws:kms:{region}:DRYRUN:{kms_alias}"
     else:
         import boto3
         s3 = boto3.client("s3", region_name=region)
         kms = boto3.client("kms", region_name=region)
         glue = boto3.client("glue", region_name=region)
         athena = boto3.client("athena", region_name=region)
+        account_id = boto3.client("sts").get_caller_identity()["Account"]
+        kms_key_arn = f"arn:aws:kms:{region}:{account_id}:{kms_alias}"
 
     ensure_kms(kms, kms_alias, dry)
     b = cfg["buckets"]
@@ -182,9 +185,9 @@ def main(argv):
     for key, name in b.items():
         ensure_bucket(s3, name, region, kms_alias, dry,
                       bronze_ia_days=ia if key == "bronze" else None)
-    ensure_glue_seccfg(glue, cfg["glue"]["security_config"], kms_alias, dry)
+    ensure_glue_seccfg(glue, cfg["glue"]["security_config"], kms_key_arn, dry)
     ensure_athena_wg(athena, cfg["athena"]["workgroup"], b["athena_results"],
-                     kms_alias, cfg["athena"]["engine_version"], dry)
+                     kms_key_arn, cfg["athena"]["engine_version"], dry)
 
     # always emit the owner-controlled pieces
     emit_iam_policy(cfg, args.iam_out)
