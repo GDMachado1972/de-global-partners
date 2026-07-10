@@ -30,7 +30,10 @@ def _load(table: str) -> pd.DataFrame:
 # ---------------------------------------------------------------- views
 def view_overview():
     st.subheader("Customer Lifetime Value — Overview")
-    clv = _load("g_fact_customer_clv_daily")
+    clv_all = _load("g_fact_customer_clv_daily")
+    latest = clv_all["snapshot_date"].max()
+    clv = clv_all[clv_all["snapshot_date"] == latest]
+    st.caption(f"As-of snapshot: {latest}")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Identified customers", f"{clv['user_id'].nunique():,}")
     c2.metric("Total CLV (net)", money(clv["cum_net_revenue"].sum()))

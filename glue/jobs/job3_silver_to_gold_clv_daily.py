@@ -59,9 +59,13 @@ def main(argv):
         snaps = daily_snapshot(spark, rd)
 
     clv = build_clv_daily(orders, snaps)
-    (clv.write.format("delta").mode("append").partitionBy("snapshot_date")
+    # dynamic partition overwrite: replaces only the snapshot_date(s) in this run's data,
+    # leaving other dates untouched — idempotent re-run of the same run_date (or --backfill)
+    # instead of accumulating duplicate rows the way a plain append would.
+    (clv.write.format("delta").mode("overwrite").partitionBy("snapshot_date")
+        .option("partitionOverwriteMode", "dynamic")
         .option("mergeSchema", "true").save(f"{a.gold_path.rstrip('/')}/g_fact_customer_clv_daily"))
-    print(f"[gold] g_fact_customer_clv_daily rows appended: {clv.count():,}")
+    print(f"[gold] g_fact_customer_clv_daily rows written: {clv.count():,}")
 
 
 if __name__ == "__main__":
