@@ -29,7 +29,12 @@ def clean_order_items(df: DataFrame) -> DataFrame:
     # 3: robust ISO-8601 parse -> timestamp + date
     df = df.withColumn("order_ts", F.to_timestamp("creation_time_utc", _TS_FMT))
     df = df.withColumn("order_date", F.to_date("order_ts"))
-    # 4: guest flag
+    # 4: guest flag — normalize blank/whitespace user_id to NULL first. CSV sources
+    # already parse empty fields as NULL, but a JDBC/RDS source can store a genuinely
+    # empty string instead, which would otherwise slip through isNull() and collapse
+    # every guest order onto one bogus "" customer.
+    df = df.withColumn("user_id",
+                       F.when(F.trim(F.col("user_id")) == "", None).otherwise(F.col("user_id")))
     df = df.withColumn("is_guest", F.col("user_id").isNull())
     # 5: numeric casts + line revenue
     df = (df

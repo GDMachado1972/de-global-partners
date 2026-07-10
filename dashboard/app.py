@@ -34,11 +34,17 @@ def view_overview():
     latest = clv_all["snapshot_date"].max()
     clv = clv_all[clv_all["snapshot_date"] == latest]
     st.caption(f"As-of snapshot: {latest}")
-    c1, c2, c3, c4 = st.columns(4)
+    total_net_all = _load("g_fact_sales_trends")["net_revenue"].sum()
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Identified customers", f"{clv['user_id'].nunique():,}")
-    c2.metric("Total CLV (net)", money(clv["cum_net_revenue"].sum()))
-    c3.metric("Avg CLV / customer", money(clv["cum_net_revenue"].mean()))
-    c4.metric("Avg orders / customer", f"{clv['cum_orders'].mean():.2f}")
+    c2.metric("Total CLV — identified customers", money(clv["cum_net_revenue"].sum()))
+    c3.metric("Total net revenue (all orders, incl. guests)", money(total_net_all))
+    c4.metric("Avg CLV / customer", money(clv["cum_net_revenue"].mean()))
+    c5.metric("Avg orders / customer", f"{clv['cum_orders'].mean():.2f}")
+    st.caption(
+        "CLV totals only identified (non-guest) customers; total net revenue includes "
+        "guest orders too, so the two figures are not directly comparable."
+    )
 
     st.markdown("**CLV tier distribution** (High = top 20% · Medium = mid 60% · Low = bottom 20%)")
     tiers = (clv.groupby("clv_tier")["user_id"].count()
@@ -113,7 +119,12 @@ def view_sales_trends():
     k1, k2, k3 = st.columns(3)
     k1.metric("Net revenue", money(d["net_revenue"].sum()))
     k2.metric("Gross revenue", money(d["gross_revenue"].sum()))
-    k3.metric("Orders", f"{int(d['orders'].sum()):,}")
+    k3.metric("Category order-lines", f"{int(d['orders'].sum()):,}")
+    st.caption(
+        "g_fact_sales_trends is at grain date × location × item category, so an order "
+        "touching multiple categories is counted once per category here — this is not "
+        "the distinct-order count."
+    )
     st.markdown("**Revenue by item category**")
     by_cat = d.groupby("item_category")["net_revenue"].sum().sort_values(ascending=False).head(15)
     st.bar_chart(by_cat)
@@ -130,6 +141,11 @@ def view_loyalty():
     st.markdown("**Loyalty vs non-loyalty**")
     show = li[[c for c in metric_cols if c in li.columns] + ["customers"]].rename(columns=metric_cols)
     st.dataframe(show, use_container_width=True)
+    st.caption(
+        "Loyalty is a per-order flag, not a per-customer attribute — a customer with both "
+        "loyalty and non-loyalty orders is counted in both cohorts below, so the two "
+        "customer counts do not sum to the total identified-customer count."
+    )
     if "avg_clv" in li.columns:
         st.markdown("**Average CLV by cohort**")
         st.bar_chart(li["avg_clv"])

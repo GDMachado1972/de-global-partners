@@ -61,6 +61,21 @@ def test_guest_flag_on_null_user(spark):
     assert out.collect()[0]["is_guest"] is True
 
 
+def test_guest_flag_on_blank_string_user_id(spark):
+    # a JDBC/RDS source can land guests as "" or whitespace instead of NULL (unlike CSV,
+    # which already parses empty fields as NULL) — both must normalize to a NULL user_id
+    # and is_guest=True, or guest orders collapse onto one bogus "" customer.
+    out = clean_order_items(_oi_df(spark, [
+        _oi_row(order_id="O1", lineitem_id="L1", user_id=""),
+        _oi_row(order_id="O2", lineitem_id="L2", user_id="   "),
+    ]))
+    rows = {r["order_id"]: r for r in out.collect()}
+    assert rows["O1"]["is_guest"] is True
+    assert rows["O1"]["user_id"] is None
+    assert rows["O2"]["is_guest"] is True
+    assert rows["O2"]["user_id"] is None
+
+
 def test_iso_timestamp_without_fractional_seconds(spark):
     # the 187 rows lacking fractional seconds must still parse (not be dropped)
     out = clean_order_items(_oi_df(spark, [
