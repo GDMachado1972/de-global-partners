@@ -120,8 +120,13 @@ def register_athena_tables(gold_path, database, workgroup, region):
 
     for t in GOLD_TABLES:
         # re-registered fresh each run (drop+create) so schema drift in the Delta log
-        # (new mart columns, etc.) is always picked up.
-        run_ddl(f"DROP TABLE IF EXISTS {database}.{t}")
+        # (new mart columns, etc.) is always picked up. Athena's DROP TABLE DDL rejects
+        # native Delta tables ("DROP TABLE not supported for Delta Lake"), so the catalog
+        # entry has to be removed via the Glue API instead.
+        try:
+            glue.delete_table(DatabaseName=database, Name=t)
+        except glue.exceptions.EntityNotFoundException:
+            pass
         run_ddl(f"CREATE EXTERNAL TABLE {database}.{t} "
                 f"LOCATION '{gold_path.rstrip('/')}/{t}/' "
                 f"TBLPROPERTIES ('table_type' = 'DELTA')")
