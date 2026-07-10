@@ -27,6 +27,7 @@ glue:
 athena:
   workgroup: global-partners-dev-wg
   engine_version: "Athena engine version 3"   # v3 REQUIRED for Delta (SDD §6.1)
+  database: global_partners_dev_gold          # Glue Catalog DB for the published Gold tables
 
 secrets:
   # Container name only. Gerardo creates & populates this himself (credential boundary).

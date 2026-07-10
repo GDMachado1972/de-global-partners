@@ -21,6 +21,12 @@ except Exception:
 
 SILVER_ORDER_ITEMS = 202_692
 
+GOLD_TABLES = [
+    "g_fact_customer_clv_daily", "g_dim_customer_rfm", "g_fact_churn_indicators",
+    "g_fact_sales_trends", "g_fact_loyalty_impact", "g_fact_location_performance",
+    "g_fact_addon_revenue",
+]
+
 
 def run_qc(spark, silver_path, gold_path, reader="delta"):
     load = lambda base, t: (spark.read.format("delta").load(f"{base}/{t}")
@@ -72,8 +78,54 @@ def _args(argv):
     p = argparse.ArgumentParser()
     p.add_argument("--silver_path", default="s3://global-partners-dev-silver")
     p.add_argument("--gold_path", default="s3://global-partners-dev-gold")
+    p.add_argument("--athena_database", default=None)      # skip registration if unset
+    p.add_argument("--athena_workgroup", default=None)
+    p.add_argument("--region", default="us-east-1")
     k, _ = p.parse_known_args(argv)
     return k
+
+
+def _wait_athena(athena, query_id):
+    import time
+    while True:
+        state = athena.get_query_execution(QueryExecutionId=query_id)["QueryExecution"]["Status"]["State"]
+        if state in ("SUCCEEDED", "FAILED", "CANCELLED"):
+            return state
+        time.sleep(2)
+
+
+def register_athena_tables(gold_path, database, workgroup, region):
+    """Register each Gold Delta table in the Glue Catalog for Athena engine v3 native
+    Delta querying — CREATE TABLE ... TBLPROPERTIES ('table_type'='DELTA') auto-detects
+    columns from the Delta transaction log, no schema duplication needed here."""
+    import boto3
+    glue = boto3.client("glue", region_name=region)
+    athena = boto3.client("athena", region_name=region)
+    try:
+        glue.get_database(Name=database)
+    except glue.exceptions.EntityNotFoundException:
+        glue.create_database(DatabaseInput={"Name": database})
+        print(f"[publish] created Glue database {database}")
+
+    def run_ddl(sql):
+        qid = athena.start_query_execution(
+            QueryString=sql,
+            QueryExecutionContext={"Database": database},
+            WorkGroup=workgroup)["QueryExecutionId"]
+        state = _wait_athena(athena, qid)
+        if state != "SUCCEEDED":
+            reason = athena.get_query_execution(QueryExecutionId=qid)["QueryExecution"]["Status"].get(
+                "StateChangeReason", "")
+            raise RuntimeError(f"Athena DDL failed: {state} — {reason}\n{sql}")
+
+    for t in GOLD_TABLES:
+        # re-registered fresh each run (drop+create) so schema drift in the Delta log
+        # (new mart columns, etc.) is always picked up.
+        run_ddl(f"DROP TABLE IF EXISTS {database}.{t}")
+        run_ddl(f"CREATE EXTERNAL TABLE {database}.{t} "
+                f"LOCATION '{gold_path.rstrip('/')}/{t}/' "
+                f"TBLPROPERTIES ('table_type' = 'DELTA')")
+        print(f"[publish] registered {database}.{t}")
 
 
 def main(argv):
@@ -84,9 +136,11 @@ def main(argv):
         from glue.lib.spark_session import get_local_spark
         spark = get_local_spark("publish_and_qc", with_delta=True)
     run_qc(spark, a.silver_path, a.gold_path)
-    # In AWS: register/refresh Athena v3 external tables over the Gold Delta paths here
-    # (Glue Data Catalog create_table / MSCK) — engine v3 set at the workgroup.
-    print("[publish] QC complete; Athena v3 registration runs in the AWS environment.")
+    if _GLUE and a.athena_database and a.athena_workgroup:
+        register_athena_tables(a.gold_path, a.athena_database, a.athena_workgroup, a.region)
+        print("[publish] Athena v3 tables registered.")
+    else:
+        print("[publish] QC complete; Athena registration skipped (local mode or unset args).")
 
 
 if __name__ == "__main__":

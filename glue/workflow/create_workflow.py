@@ -101,6 +101,10 @@ def build_workflow_spec(cfg, role_arn="<ROLE_ARN>"):
                 f"jdbc:sqlserver://{s['host']}:{s['port']};databaseName={s['database']};"
                 "encrypt=true;trustServerCertificate=true")
             spec["Connections"] = {"Connections": [cfg["network"]["connection_name"]]}
+        if key == "publish_qc" and "athena" in cfg:
+            spec["DefaultArguments"]["--athena_database"] = cfg["athena"]["database"]
+            spec["DefaultArguments"]["--athena_workgroup"] = cfg["athena"]["workgroup"]
+            spec["DefaultArguments"]["--region"] = cfg["region"]
         return spec
 
     jobs = {k: job(k) for k in
