@@ -1,0 +1,9 @@
+# Lean deps for the deployed (Athena-backend-only) dashboard.
+# Streamlit Community Cloud has no JVM, so this deliberately excludes
+# pyspark/delta-spark/holidays — those are only needed for DATA_BACKEND=local,
+# which this deployment doesn't use. See ../requirements.txt for full local dev deps.
+streamlit>=1.36
+pandas>=2.0
+pyarrow>=14.0
+pyathena>=3.8
+boto3>=1.34

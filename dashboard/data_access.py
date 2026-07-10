@@ -11,6 +11,12 @@ Env:
   athena -> ATHENA_S3_STAGING=s3://global-partners-dev-athena-results/athena/
             ATHENA_WORKGROUP=global-partners-dev-wg  ATHENA_DATABASE=global_partners_dev_gold
             AWS_REGION=us-east-1  (+ AWS creds in the environment)
+
+On Streamlit Community Cloud there's no shell to export env vars into — instead set the
+same keys (DATA_BACKEND, ATHENA_S3_STAGING, ATHENA_WORKGROUP, ATHENA_DATABASE, AWS_REGION,
+AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) as top-level keys in the app's Secrets (TOML).
+They're bridged into os.environ below so the rest of this module (and boto3/pyathena's
+normal credential chain) doesn't need to know the difference.
 """
 from __future__ import annotations
 import os
@@ -19,6 +25,15 @@ import pandas as pd
 
 # ensure repo root importable for lazy glue.* imports regardless of caller
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+try:
+    import streamlit as st
+    for _k in ("DATA_BACKEND", "ATHENA_S3_STAGING", "ATHENA_WORKGROUP", "ATHENA_DATABASE",
+               "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        if _k in st.secrets and _k not in os.environ:
+            os.environ[_k] = st.secrets[_k]
+except Exception:
+    pass
 
 
 def money(x) -> str:
